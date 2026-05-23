@@ -1,0 +1,25 @@
+mode:
+  dry_run: true
+  trading_enabled: false
+  paper_trading_enabled: false
+  human_confirmation_required: true
+
+allowed_markets:
+  spot: true
+  futures: false
+  margin: false
+  leverage: false
+
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+
+intervals:
+  - 1h
+  - 4h
+  - 1d
+
+execution:
+  enabled: false
+  default_order_type: LIMIT
+  withdrawals_allowed: false

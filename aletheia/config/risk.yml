@@ -1,0 +1,15 @@
+risk_limits:
+  max_open_positions: 1
+  max_position_size_usdt: 100
+  max_daily_trades: 1
+  max_weekly_trades: 3
+  max_daily_loss_usdt: 10
+  max_weekly_loss_usdt: 25
+  max_consecutive_losses: 2
+
+kill_switch:
+  enabled: true
+  trading_allowed: false
+  alerts_allowed: true
+  reason: "Default safe mode"
+

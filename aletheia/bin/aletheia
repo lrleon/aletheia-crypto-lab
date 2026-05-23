@@ -1,0 +1,33 @@
+#!/usr/bin/env ruby
+
+require_relative '../lib/aletheia'
+
+command = ARGV[0]
+
+if command == 'doctor'
+  puts "Aletheia (Fase 0) - Diagnosticando seguridad de configuración..."
+  
+  begin
+    config_path = ENV.fetch('ALETHEIA_CONFIG', 'config/app.yml')
+    risk_path = ENV.fetch('ALETHEIA_RISK_LIMITS', 'config/risk.yml')
+    
+    puts "Cargando config: #{config_path}"
+    puts "Cargando risk limits: #{risk_path}"
+    
+    config = Aletheia::Config.new(config_path)
+    # risk config is loaded just to verify it exists and is valid YAML
+    risk = Aletheia::Config.new(risk_path)
+    
+    puts "Verificando reglas de seguridad estrictas..."
+    Aletheia::Safety.verify!(config, risk)
+    
+    puts "[OK] Todas las comprobaciones de seguridad pasaron."
+    exit 0
+  rescue => e
+    puts "[ERROR] #{e.class}: #{e.message}"
+    exit 1
+  end
+else
+  puts "Uso: bin/aletheia doctor"
+  exit 1
+end

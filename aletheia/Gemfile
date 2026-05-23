@@ -1,0 +1,14 @@
+source 'https://rubygems.org'
+
+gem 'json'
+
+# rake tasks
+gem 'rake'
+
+group :test do
+  gem 'rspec'
+end
+
+group :development, :test do
+  gem 'rubocop', require: false
+end
