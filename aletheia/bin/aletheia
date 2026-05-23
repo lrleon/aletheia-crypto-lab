@@ -1,10 +1,35 @@
 #!/usr/bin/env ruby
 
 require_relative '../lib/aletheia'
+require 'sqlite3'
+require 'fileutils'
 
 command = ARGV[0]
 
-if command == 'doctor'
+case command
+when '--help', '-h', 'help'
+  puts "Aletheia - Laboratorio prudente de trading algorítmico"
+  puts ""
+  puts "Uso: bin/aletheia <comando>"
+  puts ""
+  puts "Comandos disponibles:"
+  puts "  doctor      Verifica reglas de seguridad de configuración (Fase 0)"
+  puts "  init_db     Inicializa la base de datos SQLite local"
+  puts "  help        Muestra esta ayuda"
+when 'init_db'
+  puts "Inicializando base de datos local..."
+  db_path = File.join(__dir__, '..', 'db', 'aletheia.db')
+  schema_path = File.join(__dir__, '..', 'db', 'schema.sql')
+  
+  unless File.exist?(schema_path)
+    puts "[ERROR] Archivo de esquema no encontrado en db/schema.sql"
+    exit 1
+  end
+  
+  db = SQLite3::Database.new(db_path)
+  db.execute_batch(File.read(schema_path))
+  puts "[OK] Base de datos inicializada en db/aletheia.db"
+when 'doctor'
   puts "Aletheia (Fase 0) - Diagnosticando seguridad de configuración..."
   
   begin
@@ -28,6 +53,6 @@ if command == 'doctor'
     exit 1
   end
 else
-  puts "Uso: bin/aletheia doctor"
+  puts "Uso: bin/aletheia [--help | doctor | init_db]"
   exit 1
 end
