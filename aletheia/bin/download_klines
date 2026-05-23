@@ -1,0 +1,229 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'optparse'
+require 'date'
+require 'logger'
+require 'fileutils'
+require_relative '../lib/aletheia'
+require_relative '../lib/aletheia/storage/kline_repository'
+require_relative '../lib/aletheia/binance/public_data_downloader'
+require_relative '../lib/aletheia/binance/rest_client'
+
+options = {
+  symbol:   nil,
+  interval: nil,
+  from:     nil,
+  to:       Date.today.to_s,
+  verbose:  false
+}
+
+parser = OptionParser.new do |opts|
+  opts.banner = "Uso: bin/download_klines [opciones]"
+  opts.separator ""
+  opts.separator "Descarga velas históricas de Binance Spot y las guarda en SQLite."
+  opts.separator "Usa datos públicos (data.binance.vision) para meses completos"
+  opts.separator "y la API REST para meses recientes."
+  opts.separator ""
+  opts.separator "Opciones:"
+
+  opts.on('--symbol SYMBOL',   'Símbolo Spot (ej: BTCUSDT, ETHUSDT)')      { |v| options[:symbol]   = v.upcase }
+  opts.on('--interval INTVAL', 'Intervalo (1h, 4h, 1d, etc.)')             { |v| options[:interval] = v }
+  opts.on('--from DATE',       'Fecha inicio YYYY-MM-DD')                   { |v| options[:from]     = v }
+  opts.on('--to DATE',         "Fecha fin YYYY-MM-DD (defecto: hoy)")       { |v| options[:to]       = v }
+  opts.on('--verbose',         'Logs detallados')                            {     options[:verbose]  = true }
+  opts.on('-h', '--help',      'Mostrar esta ayuda')                         { puts opts; exit 0 }
+end
+
+parser.parse!
+
+# --- Validar argumentos obligatorios ---
+missing = []
+missing << '--symbol'   if options[:symbol].nil?
+missing << '--interval' if options[:interval].nil?
+missing << '--from'     if options[:from].nil?
+
+unless missing.empty?
+  warn "[ERROR] Argumentos obligatorios faltantes: #{missing.join(', ')}"
+  warn parser
+  exit 1
+end
+
+# --- Validar símbolo Spot (no futures, no margin) ---
+BLOCKED_SUFFIXES = %w[PERP _PERP -SWAP USDT_MARGINED COIN_MARGINED].freeze
+if BLOCKED_SUFFIXES.any? { |s| options[:symbol].include?(s) && options[:symbol] != options[:symbol].sub(s, '') }
+  warn "[ERROR] Solo se permiten símbolos Spot. Símbolo rechazado: #{options[:symbol]}"
+  exit 1
+end
+
+# --- Parsear fechas ---
+begin
+  from_date = Date.parse(options[:from])
+  to_date   = Date.parse(options[:to])
+rescue Date::Error => e
+  warn "[ERROR] Fecha inválida: #{e.message}"
+  exit 1
+end
+
+if from_date > to_date
+  warn "[ERROR] --from (#{from_date}) no puede ser posterior a --to (#{to_date})"
+  exit 1
+end
+
+symbol   = options[:symbol]
+interval = options[:interval]
+
+# --- Setup ---
+log_level = options[:verbose] ? Logger::DEBUG : Logger::INFO
+logger    = Logger.new($stdout, level: log_level)
+logger.formatter = proc { |sev, _dt, _prog, msg| "[#{sev}] #{msg}\n" }
+
+project_root = File.expand_path('..', __dir__)
+db_path      = File.join(project_root, 'db', 'aletheia.db')
+tmp_dir      = File.join(project_root, 'data', 'raw', 'tmp')
+reports_dir  = File.join(project_root, 'reports', 'data_quality')
+FileUtils.mkdir_p(reports_dir)
+
+unless File.exist?(db_path)
+  logger.error("Base de datos no encontrada en #{db_path}")
+  logger.error("Ejecuta primero: ruby bin/aletheia init_db")
+  exit 1
+end
+
+# --- Componentes ---
+repo       = Aletheia::Storage::KlineRepository.new(db_path: db_path, logger: logger)
+downloader = Aletheia::Binance::PublicDataDownloader.new(tmp_dir: tmp_dir, logger: logger)
+rest       = Aletheia::Binance::RestClient.new(logger: logger)
+
+# Los ZIPs públicos están disponibles para meses completados.
+# Se usa el mes anterior al actual como límite para ZIPs.
+today      = Date.today
+zip_cutoff = Date.new(today.year, today.month, 1) << 1  # primer día del mes anterior
+
+stats      = { months_zip: 0, months_rest: 0, inserted: 0, skipped: 0, errors: 0 }
+log_lines  = []
+
+logger.info("Iniciando descarga: #{symbol} #{interval} #{from_date} → #{to_date}")
+logger.info("Límite ZIP: hasta #{zip_cutoff.strftime('%Y-%m')}")
+
+current = Date.new(from_date.year, from_date.month, 1)
+
+while current <= to_date
+  year         = current.year
+  month        = current.month
+  month_label  = format('%04d-%02d', year, month)
+  next_month   = current >> 1
+
+  # Calcular start/end en ms para este mes recortado por from_date/to_date
+  month_start_date = [current, from_date].max
+  month_end_date   = [next_month - 1, to_date].min
+
+  start_ms = to_ms(month_start_date, :start)
+  end_ms   = to_ms(month_end_date,   :end)
+
+  if current <= zip_cutoff
+    klines = downloader.monthly_klines(symbol: symbol, interval: interval,
+                                       year: year, month: month)
+
+    if klines && !klines.empty?
+      # Slice to requested date range (ZIP contains full month)
+      klines = klines.select { |k| k[:open_time] >= start_ms && k[:open_time] <= end_ms }
+      result = repo.insert_batch(klines)
+      stats[:months_zip] += 1
+      stats[:inserted]   += result[:inserted]
+      stats[:skipped]    += result[:skipped]
+      log_lines << "- #{month_label}: ZIP #{klines.size} velas → #{result[:inserted]} insertas, #{result[:skipped]} saltadas"
+      logger.info("#{month_label}: ZIP #{klines.size} velas → #{result[:inserted]} insertas, #{result[:skipped]} saltadas")
+    else
+      # Fallback to REST for this month
+      logger.warn("#{month_label}: ZIP no disponible, usando REST")
+      klines = fetch_via_rest(rest, symbol, interval, start_ms, end_ms, logger)
+      process_rest_batch(klines, repo, stats, log_lines, month_label, logger)
+    end
+  else
+    logger.info("#{month_label}: usando REST (mes reciente)")
+    klines = fetch_via_rest(rest, symbol, interval, start_ms, end_ms, logger)
+    process_rest_batch(klines, repo, stats, log_lines, month_label, logger)
+  end
+
+  current = next_month
+end
+
+repo.close
+
+# --- Reporte ---
+timestamp   = Time.now.strftime('%Y%m%d_%H%M%S')
+report_path = File.join(reports_dir, "download_log_#{symbol}_#{interval}_#{timestamp}.md")
+write_report(report_path, symbol, interval, from_date, to_date, stats, log_lines)
+
+logger.info("Descarga completada. Insertadas: #{stats[:inserted]}, Omitidas: #{stats[:skipped]}, Errores: #{stats[:errors]}")
+logger.info("Reporte generado: #{report_path}")
+
+exit(stats[:errors] > 0 ? 1 : 0)
+
+# --- Helpers ---
+
+def to_ms(date, edge)
+  if edge == :start
+    Time.utc(date.year, date.month, date.day, 0, 0, 0).to_i * 1000
+  else
+    Time.utc(date.year, date.month, date.day, 23, 59, 59).to_i * 1000 + 999
+  end
+end
+
+def fetch_via_rest(rest, symbol, interval, start_ms, end_ms, logger)
+  rest.klines_range(symbol: symbol, interval: interval,
+                    start_time: start_ms, end_time: end_ms)
+rescue => e
+  logger.error("Error REST: #{e.message}")
+  []
+end
+
+def process_rest_batch(klines, repo, stats, log_lines, month_label, logger)
+  if klines.any?
+    result = repo.insert_batch(klines)
+    stats[:months_rest] += 1
+    stats[:inserted]    += result[:inserted]
+    stats[:skipped]     += result[:skipped]
+    log_lines << "- #{month_label}: REST #{klines.size} velas → #{result[:inserted]} insertas, #{result[:skipped]} saltadas"
+    logger.info("#{month_label}: REST #{klines.size} velas → #{result[:inserted]} insertas, #{result[:skipped]} saltadas")
+  else
+    log_lines << "- #{month_label}: sin datos"
+    logger.warn("#{month_label}: sin datos")
+    stats[:errors] += 1
+  end
+end
+
+def write_report(path, symbol, interval, from_date, to_date, stats, log_lines)
+  content = <<~MD
+    # Reporte de descarga — #{symbol} #{interval}
+
+    **Fecha de ejecución:** #{Time.now.strftime('%Y-%m-%d %H:%M:%S')}
+    **Símbolo:** #{symbol}
+    **Intervalo:** #{interval}
+    **Rango solicitado:** #{from_date} → #{to_date}
+
+    ## Resumen
+
+    | Métrica | Valor |
+    |---|---|
+    | Meses descargados vía ZIP público | #{stats[:months_zip]} |
+    | Meses descargados vía REST | #{stats[:months_rest]} |
+    | Velas nuevas insertadas | #{stats[:inserted]} |
+    | Velas omitidas (ya existían) | #{stats[:skipped]} |
+    | Meses con error | #{stats[:errors]} |
+
+    ## Detalle por mes
+
+    #{log_lines.join("\n")}
+
+    ## Notas
+
+    - Descarga idempotente: velas ya existentes no fueron modificadas.
+    - Solo datos Spot (sin futures ni margin).
+    - No se requirió API key de trading.
+    - Los errores quedan registrados en este reporte.
+  MD
+
+  File.write(path, content)
+end

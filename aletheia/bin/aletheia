@@ -16,6 +16,9 @@ when '--help', '-h', 'help'
   puts "  doctor      Verifica reglas de seguridad de configuración (Fase 0)"
   puts "  init_db     Inicializa la base de datos SQLite local"
   puts "  help        Muestra esta ayuda"
+  puts ""
+  puts "Scripts de descarga (Fase 2):"
+  puts "  bin/download_klines --help"
 when 'init_db'
   puts "Inicializando base de datos local..."
   db_path = File.join(__dir__, '..', 'db', 'aletheia.db')
