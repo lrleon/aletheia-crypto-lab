@@ -5,12 +5,133 @@ require 'optparse'
 require 'date'
 require 'logger'
 require 'fileutils'
+require 'net/http'
+require 'json'
+require 'io/console'
 require_relative '../lib/aletheia'
 require_relative '../lib/aletheia/storage/kline_repository'
 require_relative '../lib/aletheia/binance/public_data_downloader'
 require_relative '../lib/aletheia/binance/rest_client'
 
+COIN_NAMES = {
+  'BTC'     => 'Bitcoin',            'ETH'     => 'Ethereum',
+  'BNB'     => 'BNB',                'SOL'     => 'Solana',
+  'XRP'     => 'XRP',                'DOGE'    => 'Dogecoin',
+  'ADA'     => 'Cardano',            'AVAX'    => 'Avalanche',
+  'SHIB'    => 'Shiba Inu',          'DOT'     => 'Polkadot',
+  'LINK'    => 'Chainlink',          'MATIC'   => 'Polygon',
+  'POL'     => 'Polygon',            'LTC'     => 'Litecoin',
+  'UNI'     => 'Uniswap',            'ATOM'    => 'Cosmos',
+  'XLM'     => 'Stellar',            'ETC'     => 'Ethereum Classic',
+  'FIL'     => 'Filecoin',           'APT'     => 'Aptos',
+  'ARB'     => 'Arbitrum',           'OP'      => 'Optimism',
+  'SUI'     => 'Sui',                'SEI'     => 'Sei',
+  'INJ'     => 'Injective',          'TIA'     => 'Celestia',
+  'NEAR'    => 'NEAR Protocol',      'ICP'     => 'Internet Computer',
+  'RENDER'  => 'Render',             'FTM'     => 'Fantom',
+  'ALGO'    => 'Algorand',           'VET'     => 'VeChain',
+  'SAND'    => 'The Sandbox',        'MANA'    => 'Decentraland',
+  'AXS'     => 'Axie Infinity',      'THETA'   => 'Theta Network',
+  'EOS'     => 'EOS',                'XTZ'     => 'Tezos',
+  'AAVE'    => 'Aave',               'GRT'     => 'The Graph',
+  'SNX'     => 'Synthetix',          'MKR'     => 'Maker',
+  'COMP'    => 'Compound',           'CRV'     => 'Curve DAO',
+  'ENS'     => 'Ethereum Name Svc',  'LDO'     => 'Lido DAO',
+  'RUNE'    => 'THORChain',          'CAKE'    => 'PancakeSwap',
+  'DYDX'    => 'dYdX',               'GMX'     => 'GMX',
+  'PEPE'    => 'Pepe',               'FLOKI'   => 'Floki',
+  'WIF'     => 'dogwifhat',          'BONK'    => 'Bonk',
+  'BOME'    => 'Book of Meme',       'JUP'     => 'Jupiter',
+  'PYTH'    => 'Pyth Network',       'JTO'     => 'Jito',
+  'RAY'     => 'Raydium',            'ENA'     => 'Ethena',
+  'ETHFI'   => 'Ether.fi',           'EIGEN'   => 'EigenLayer',
+  'ARKM'    => 'Arkham',             'TRX'     => 'TRON',
+  'TON'     => 'Toncoin',            'STX'     => 'Stacks',
+  'IMX'     => 'Immutable',          'GALA'    => 'Gala',
+  'CHZ'     => 'Chiliz',             'ANKR'    => 'Ankr',
+  'BLUR'    => 'Blur',               'PENDLE'  => 'Pendle',
+  'STRK'    => 'Starknet',           'ZK'      => 'zkSync',
+  'ONDO'    => 'Ondo Finance',       'DYM'     => 'Dymension',
+  'ZRX'     => '0x Protocol',        'BAT'     => 'Basic Attention Token',
+  'YFI'     => 'yearn.finance',      'SUSHI'   => 'SushiSwap',
+  'OCEAN'   => 'Ocean Protocol',     'FET'     => 'Fetch.ai',
+  'ROSE'    => 'Oasis Network',      'KAVA'    => 'Kava',
+  'CFX'     => 'Conflux',            'ZIL'     => 'Zilliqa',
+  'QTUM'    => 'Qtum',               'WAVES'   => 'Waves',
+  'DASH'    => 'Dash',               'DGB'     => 'DigiByte',
+  'BCH'     => 'Bitcoin Cash',       'ZEC'     => 'Zcash',
+  'DCR'     => 'Decred',             'CKB'     => 'Nervos Network',
+  'FDUSD'   => 'First Digital USD',  'DAI'     => 'Dai',
+  'USDC'    => 'USD Coin',           'AXL'     => 'Axelar',
+  'RON'     => 'Ronin',              'W'       => 'Wormhole',
+  'IO'      => 'io.net',             'ZRO'     => 'LayerZero',
+  'ALT'     => 'AltLayer',           'MANTA'   => 'Manta Network',
+  'PORTAL'  => 'Portal',             'PIXEL'   => 'Pixels',
+  'CVX'     => 'Convex Finance',     'BAL'     => 'Balancer',
+  'BAND'    => 'Band Protocol',      'RLC'     => 'iExec RLC',
+  'NMR'     => 'Numeraire',          'RPL'     => 'Rocket Pool',
+  'AGIX'    => 'SingularityNET',     'ACH'     => 'Alchemy Pay',
+}.freeze
+
 # --- Helpers (deben definirse antes del código principal) ---
+
+def coin_full_name(base_asset)
+  COIN_NAMES.fetch(base_asset, base_asset)
+end
+
+def list_usdt_symbols
+  symbols   = fetch_usdt_spot_symbols.map { |s| s[:symbol] }
+
+  puts "Pares Spot activos con cotización USDT en Binance (#{symbols.size} encontrados):"
+  puts ''
+
+  col_width = symbols.map(&:length).max + 2
+  cols      = [terminal_width / col_width, 1].max
+  symbols.each_slice(cols) { |row| puts row.map { |s| s.ljust(col_width) }.join }
+  puts ''
+  puts 'Para ver nombres completos: bin/download_klines --list-pairs'
+end
+
+def terminal_width
+  IO.console_size[1]
+rescue
+  80
+end
+
+def fetch_usdt_spot_symbols
+  uri      = URI('https://api.binance.com/api/v3/exchangeInfo')
+  response = Net::HTTP.get_response(uri)
+
+  unless response.is_a?(Net::HTTPSuccess)
+    warn "[ERROR] No se pudo obtener exchangeInfo (HTTP #{response.code})"
+    exit 1
+  end
+
+  JSON.parse(response.body)['symbols']
+      .select { |s| s['status'] == 'TRADING' &&
+                    s['quoteAsset'] == 'USDT' &&
+                    s['isSpotTradingAllowed'] == true }
+      .map    { |s| { symbol: s['symbol'], base: s['baseAsset'] } }
+      .sort_by { |s| s[:symbol] }
+end
+
+def list_usdt_pairs(filter: nil)
+  symbols = fetch_usdt_spot_symbols
+  symbols = symbols.select { |s| s[:base].include?(filter.upcase) } if filter
+
+  sym_width  = symbols.map { |s| s[:symbol].length }.max + 2
+  name_width = 26
+
+  puts "Pares Spot USDT activos en Binance (#{symbols.size}):"
+  puts ''
+  puts "#{'Símbolo'.ljust(sym_width)}  #{'Nombre completo'.ljust(name_width)}"
+  puts "#{ '-' * sym_width}  #{'-' * name_width}"
+
+  symbols.each do |s|
+    name = "#{coin_full_name(s[:base])}/USDT"
+    puts "#{s[:symbol].ljust(sym_width)}  #{name}"
+  end
+end
 
 def to_ms(date, edge)
   if edge == :start
@@ -80,31 +201,59 @@ end
 # --- Opciones CLI ---
 
 options = {
-  symbol:   nil,
-  interval: nil,
-  from:     nil,
-  to:       Date.today.to_s,
-  verbose:  false
+  symbol:       nil,
+  interval:     nil,
+  from:         nil,
+  to:           Date.today.to_s,
+  verbose:      false,
+  list_symbols: false,
+  list_pairs:   false,
+  filter:       nil
 }
 
 parser = OptionParser.new do |opts|
-  opts.banner = "Uso: bin/download_klines [opciones]"
-  opts.separator ""
-  opts.separator "Descarga velas históricas de Binance Spot y las guarda en SQLite."
-  opts.separator "Usa datos públicos (data.binance.vision) para meses completos"
-  opts.separator "y la API REST para meses recientes."
-  opts.separator ""
-  opts.separator "Opciones:"
+  opts.banner = 'Uso: bin/download_klines [opciones]'
+  opts.separator ''
+  opts.separator 'Descarga velas históricas de Binance Spot y las guarda en SQLite.'
+  opts.separator 'Usa datos públicos (data.binance.vision) para meses completos'
+  opts.separator 'y la API REST para meses recientes.'
+  opts.separator ''
+  opts.separator 'Opciones:'
 
-  opts.on('--symbol SYMBOL',   'Símbolo Spot (ej: BTCUSDT, ETHUSDT)')    { |v| options[:symbol]   = v.upcase }
-  opts.on('--interval INTVAL', 'Intervalo (1h, 4h, 1d, etc.)')           { |v| options[:interval] = v }
-  opts.on('--from DATE',       'Fecha inicio YYYY-MM-DD')                 { |v| options[:from]     = v }
-  opts.on('--to DATE',         'Fecha fin YYYY-MM-DD (defecto: hoy)')     { |v| options[:to]       = v }
-  opts.on('--verbose',         'Logs detallados')                          {     options[:verbose]  = true }
-  opts.on('-h', '--help',      'Mostrar esta ayuda')                       { puts opts; exit 0 }
+  opts.on('--symbol SYMBOL',   'Símbolo Spot (ej: BTCUSDT, SOLUSDT)')        { |v| options[:symbol]      = v.upcase }
+  opts.on('--interval INTVAL', 'Intervalo de vela (ver lista abajo)')         { |v| options[:interval]    = v }
+  opts.on('--from DATE',       'Fecha inicio YYYY-MM-DD')                     { |v| options[:from]        = v }
+  opts.on('--to DATE',         'Fecha fin YYYY-MM-DD (defecto: hoy)')         { |v| options[:to]          = v }
+  opts.on('--list-symbols',    'Lista pares USDT en columnas (sin nombres)')  {     options[:list_symbols] = true }
+  opts.on('--list-pairs',      'Lista pares USDT con nombre completo')        {     options[:list_pairs]   = true }
+  opts.on('--filter BASE',     'Filtra --list-pairs (ej: --filter SOL)')      { |v| options[:filter]      = v }
+  opts.on('--verbose',         'Logs detallados')                              {     options[:verbose]      = true }
+  opts.on('-h', '--help',      'Mostrar esta ayuda')                           { puts opts; exit 0 }
+
+  opts.separator ''
+  opts.separator 'Intervalos disponibles para SOLUSDT (verificados en data.binance.vision):'
+  opts.separator '  1m   3m   5m   15m  30m'
+  opts.separator '  1h   2h   4h   6h   8h   12h'
+  opts.separator '  1d   3d   1w'
+  opts.separator '  (1M no disponible para SOLUSDT)'
+  opts.separator ''
+  opts.separator 'Ejemplos:'
+  opts.separator '  ruby bin/download_klines --symbol SOLUSDT --interval 1h --from 2025-01-01'
+  opts.separator '  ruby bin/download_klines --symbol SOLUSDT --interval 4h --from 2024-01-01 --to 2025-12-31'
+  opts.separator '  ruby bin/download_klines --symbol BTCUSDT --interval 1d --from 2021-01-01'
 end
 
 parser.parse!
+
+if options[:list_symbols]
+  list_usdt_symbols
+  exit 0
+end
+
+if options[:list_pairs]
+  list_usdt_pairs(filter: options[:filter])
+  exit 0
+end
 
 # --- Validar argumentos obligatorios ---
 missing = []
@@ -155,7 +304,7 @@ FileUtils.mkdir_p(reports_dir)
 
 unless File.exist?(db_path)
   logger.error("Base de datos no encontrada en #{db_path}")
-  logger.error("Ejecuta primero: ruby bin/aletheia init_db")
+  logger.error('Ejecuta primero: ruby bin/aletheia init_db')
   exit 1
 end
 

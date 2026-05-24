@@ -1,0 +1,207 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'optparse'
+require 'date'
+require 'csv'
+require 'fileutils'
+require 'logger'
+require_relative '../lib/aletheia'
+require_relative '../lib/aletheia/storage/kline_repository'
+
+VALID_INTERVALS = %w[1m 3m 5m 15m 30m 1h 2h 4h 6h 8h 12h 1d 3d 1w].freeze
+
+options = {
+  symbol:   nil,
+  interval: nil,
+  from:     nil,
+  to:       nil,
+  open:     false,
+  verbose:  false
+}
+
+parser = OptionParser.new do |opts|
+  opts.banner = 'Uso: bin/plot_klines [opciones]'
+  opts.separator ''
+  opts.separator 'Genera un gráfico interactivo de velas (OHLCV) en HTML'
+  opts.separator 'a partir de datos ya descargados en SQLite.'
+  opts.separator 'No requiere API key. Solo visualiza datos existentes.'
+  opts.separator ''
+  opts.separator 'Opciones:'
+
+  opts.on('--symbol SYMBOL',   'Símbolo (ej: BTCUSDT, SOLUSDT)')             { |v| options[:symbol]   = v.upcase }
+  opts.on('--interval INTVAL', "Intervalo (#{VALID_INTERVALS.join(', ')})")   { |v| options[:interval] = v }
+  opts.on('--from DATE',       'Fecha inicio YYYY-MM-DD (opcional)')          { |v| options[:from]     = v }
+  opts.on('--to DATE',         'Fecha fin YYYY-MM-DD (opcional, defecto hoy)'){ |v| options[:to]       = v }
+  opts.on('--open',            'Abrir el HTML en el navegador al terminar')   {     options[:open]      = true }
+  opts.on('--verbose',         'Logs detallados')                              {     options[:verbose]   = true }
+  opts.on('-h', '--help',      'Mostrar esta ayuda')                           { puts opts; exit 0 }
+
+  opts.separator ''
+  opts.separator 'Ejemplos:'
+  opts.separator '  ruby bin/plot_klines --symbol BTCUSDT --interval 4h'
+  opts.separator '  ruby bin/plot_klines --symbol SOLUSDT --interval 1h --from 2026-01-01 --open'
+  opts.separator '  ruby bin/plot_klines --symbol BTCUSDT --interval 1d --from 2025-01-01 --to 2025-12-31'
+end
+
+parser.parse!
+
+missing = []
+missing << '--symbol'   if options[:symbol].nil?
+missing << '--interval' if options[:interval].nil?
+
+unless missing.empty?
+  warn "[ERROR] Argumentos obligatorios faltantes: #{missing.join(', ')}"
+  warn parser
+  exit 1
+end
+
+unless VALID_INTERVALS.include?(options[:interval])
+  warn "[ERROR] Intervalo inválido: #{options[:interval]}"
+  warn "Intervalos disponibles: #{VALID_INTERVALS.join(', ')}"
+  exit 1
+end
+
+log_level = options[:verbose] ? Logger::DEBUG : Logger::INFO
+logger    = Logger.new($stdout)
+logger.level = log_level
+logger.formatter = proc { |sev, _dt, _prog, msg| "[#{sev}] #{msg}\n" }
+
+project_root = File.expand_path('..', __dir__)
+db_path      = File.join(project_root, 'db', 'aletheia.db')
+
+unless File.exist?(db_path)
+  logger.error("Base de datos no encontrada: #{db_path}")
+  logger.error("Ejecuta primero: ruby bin/aletheia init_db && ruby bin/download_klines ...")
+  exit 1
+end
+
+symbol   = options[:symbol]
+interval = options[:interval]
+
+repo = Aletheia::Storage::KlineRepository.new(db_path: db_path, logger: Logger.new('/dev/null'))
+
+# Determinar rango de tiempo
+from_ms =
+  if options[:from]
+    begin
+      d = Date.parse(options[:from])
+      Time.utc(d.year, d.month, d.day, 0, 0, 0).to_i * 1000
+    rescue Date::Error => e
+      logger.error("Fecha --from inválida: #{e.message}")
+      exit 1
+    end
+  else
+    repo.earliest_open_time(symbol: symbol, interval: interval)
+  end
+
+to_ms =
+  if options[:to]
+    begin
+      d = Date.parse(options[:to])
+      Time.utc(d.year, d.month, d.day, 23, 59, 59).to_i * 1000 + 999
+    rescue Date::Error => e
+      logger.error("Fecha --to inválida: #{e.message}")
+      exit 1
+    end
+  else
+    repo.latest_open_time(symbol: symbol, interval: interval)
+  end
+
+if from_ms.nil? || to_ms.nil?
+  logger.error("No hay datos para #{symbol}/#{interval} en la base de datos.")
+  logger.error("Descarga datos primero con: ruby bin/download_klines --symbol #{symbol} --interval #{interval} --from <fecha>")
+  exit 1
+end
+
+logger.info("Exportando #{symbol} #{interval} desde #{Time.at(from_ms / 1000).utc} hasta #{Time.at(to_ms / 1000).utc}")
+
+rows = repo.find_range(symbol: symbol, interval: interval, from_time: from_ms, to_time: to_ms)
+repo.close
+
+if rows.empty?
+  logger.error("Sin datos en el rango seleccionado para #{symbol}/#{interval}.")
+  exit 1
+end
+
+logger.info("#{rows.size} velas encontradas")
+
+# Exportar CSV temporal
+exports_dir = File.join(project_root, 'data', 'exports')
+FileUtils.mkdir_p(exports_dir)
+timestamp = Time.now.strftime('%Y%m%d_%H%M%S')
+csv_path  = File.join(exports_dir, "klines_#{symbol}_#{interval}_#{timestamp}.tmp.csv")
+
+CSV.open(csv_path, 'w') do |csv|
+  csv << %w[open_time_ms open high low close volume close_time_ms
+            quote_asset_volume number_of_trades
+            taker_buy_base_volume taker_buy_quote_volume source]
+  rows.each { |r| csv << r }
+end
+
+logger.debug("CSV temporal: #{csv_path}")
+
+# Ruta de salida HTML
+charts_dir  = File.join(project_root, 'reports', 'charts')
+FileUtils.mkdir_p(charts_dir)
+
+from_label = Time.at(from_ms / 1000).utc.strftime('%Y%m%d')
+to_label   = Time.at(to_ms / 1000).utc.strftime('%Y%m%d')
+html_name  = "#{symbol}_#{interval}_#{from_label}_#{to_label}.html"
+html_path  = File.join(charts_dir, html_name)
+
+# Llamar al script R
+r_script = File.join(project_root, 'R', 'scripts', 'plot_klines.R')
+
+unless File.exist?(r_script)
+  logger.error("Script R no encontrado: #{r_script}")
+  FileUtils.rm_f(csv_path)
+  exit 1
+end
+
+unless system('which Rscript > /dev/null 2>&1')
+  logger.error("Rscript no encontrado en PATH. Instala R para usar esta función.")
+  FileUtils.rm_f(csv_path)
+  exit 1
+end
+
+logger.info("Generando gráfico con R...")
+r_cmd = ['Rscript', '--vanilla', r_script, csv_path, symbol, interval, html_path]
+logger.debug("Ejecutando: #{r_cmd.join(' ')}")
+
+success = system(*r_cmd)
+FileUtils.rm_f(csv_path)
+
+unless success
+  logger.error("El script R terminó con error.")
+  exit 1
+end
+
+unless File.exist?(html_path)
+  logger.error("HTML no fue generado: #{html_path}")
+  exit 1
+end
+
+size_kb = (File.size(html_path) / 1024.0).round(1)
+logger.info("Gráfico listo: #{html_path} (#{size_kb} KB)")
+
+if options[:open]
+  opener =
+    if RUBY_PLATFORM.include?('darwin')
+      'open'
+    elsif system('which xdg-open > /dev/null 2>&1')
+      'xdg-open'
+    else
+      nil
+    end
+
+  if opener
+    system(opener, html_path)
+  else
+    logger.warn("No se pudo abrir el navegador automáticamente.")
+    logger.info("Abre manualmente: file://#{html_path}")
+  end
+else
+  puts "\nAbre el gráfico en tu navegador:"
+  puts "  file://#{html_path}"
+end

@@ -810,6 +810,44 @@ Preguntas:
 
 ---
 
+### 2.7 Visualización mínima de velas
+
+#### Objetivo
+
+Generar gráficos simples de las velas descargadas para inspección visual de continuidad, gaps, anomalías y consistencia general de los datos.
+
+#### Entregables
+
+- `bin/plot_klines` — CLI Ruby que extrae los datos de SQLite y llama al script R
+- `r/scripts/plot_klines.R` — genera gráficos de velas en HTML interactivo
+- `reports/charts/*.html` — archivos de salida para inspección en navegador
+
+#### Hitos
+
+| Hito | Resultado esperado |
+|---|---|
+| 2.7.1 | `bin/plot_klines --help` funciona |
+| 2.7.2 | Exportar velas de SQLite a CSV temporal |
+| 2.7.3 | `plot_klines.R` genera HTML con gráfico de velas |
+| 2.7.4 | El HTML se guarda en `reports/charts/` con nombre descriptivo |
+| 2.7.5 | Gaps y velas faltantes son visualmente distinguibles |
+
+#### Criterios de aceptación
+
+- No genera señales de compra/venta.
+- No calcula estrategias.
+- No induce decisiones operativas.
+- Solo visualiza datos ya descargados y almacenados en SQLite.
+- El gráfico muestra al menos: OHLC, volumen y eje de tiempo legible.
+
+#### Restricciones
+
+- R solo para visualización. Sin API secrets ni ejecución de órdenes.
+- La CLI Ruby se limita a extraer datos y lanzar el script R.
+- No requiere API key de Binance.
+
+---
+
 ## Fase 3 — Validación de datos
 
 ### Objetivo
