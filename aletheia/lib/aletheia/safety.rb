@@ -16,16 +16,16 @@ module Aletheia
       check_boolean_strict!('mode', 'trading_enabled', false)
       check_boolean_strict!('mode', 'paper_trading_enabled', false)
       check_boolean_strict!('mode', 'human_confirmation_required', true)
-      
+
       check_boolean_strict!('allowed_markets', 'futures', false)
       check_boolean_strict!('allowed_markets', 'margin', false)
       check_boolean_strict!('allowed_markets', 'leverage', false)
-      
+
       check_boolean_strict!('execution', 'withdrawals_allowed', false)
       check_boolean_strict!('execution', 'enabled', false)
 
       verify_risk_config! if @risk_config
-      
+
       true
     end
 
@@ -33,10 +33,11 @@ module Aletheia
 
     def check_boolean_strict!(*keys, expected_value)
       actual_value = @config.fetch(*keys)
-      
+
       unless actual_value == expected_value
         key_path = keys.join('.')
-        raise ConfigurationError, "Error de seguridad: '#{key_path}' DEBE ser #{expected_value}, pero es #{actual_value.inspect}"
+        raise ConfigurationError,
+              "Error de seguridad: '#{key_path}' DEBE ser #{expected_value}, pero es #{actual_value.inspect}"
       end
     end
 
@@ -51,7 +52,8 @@ module Aletheia
 
       unless actual_value == expected_value
         key_path = keys.join('.')
-        raise ConfigurationError, "Error de seguridad: '#{key_path}' DEBE ser #{expected_value}, pero es #{actual_value.inspect}"
+        raise ConfigurationError,
+              "Error de seguridad: '#{key_path}' DEBE ser #{expected_value}, pero es #{actual_value.inspect}"
       end
     end
 
@@ -60,7 +62,8 @@ module Aletheia
 
       unless actual_value.is_a?(Integer) && actual_value <= max_value
         key_path = keys.join('.')
-        raise ConfigurationError, "Error de seguridad: '#{key_path}' DEBE ser un entero <= #{max_value}, pero es #{actual_value.inspect}"
+        raise ConfigurationError,
+              "Error de seguridad: '#{key_path}' DEBE ser un entero <= #{max_value}, pero es #{actual_value.inspect}"
       end
     end
   end

@@ -70,16 +70,16 @@ module Aletheia
       end
 
       def count(symbol:, interval:, from_time: nil, to_time: nil)
-        sql    = "SELECT COUNT(*) FROM klines WHERE symbol = ? AND interval = ?"
+        sql    = 'SELECT COUNT(*) FROM klines WHERE symbol = ? AND interval = ?'
         params = [symbol, interval]
 
         if from_time
-          sql    += " AND open_time >= ?"
+          sql    += ' AND open_time >= ?'
           params << from_time
         end
 
         if to_time
-          sql    += " AND open_time <= ?"
+          sql    += ' AND open_time <= ?'
           params << to_time
         end
 
@@ -88,14 +88,14 @@ module Aletheia
 
       def latest_open_time(symbol:, interval:)
         @db.get_first_value(
-          "SELECT MAX(open_time) FROM klines WHERE symbol = ? AND interval = ?",
+          'SELECT MAX(open_time) FROM klines WHERE symbol = ? AND interval = ?',
           [symbol, interval]
         )
       end
 
       def earliest_open_time(symbol:, interval:)
         @db.get_first_value(
-          "SELECT MIN(open_time) FROM klines WHERE symbol = ? AND interval = ?",
+          'SELECT MIN(open_time) FROM klines WHERE symbol = ? AND interval = ?',
           [symbol, interval]
         )
       end

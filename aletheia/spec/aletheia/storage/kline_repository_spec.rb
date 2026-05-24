@@ -5,10 +5,13 @@ require_relative '../../../lib/aletheia/storage/kline_repository'
 
 RSpec.describe Aletheia::Storage::KlineRepository do
   let(:tmp_db)   { Tempfile.new(['klines_test', '.db']) }
-  let(:null_log) { Logger.new('/dev/null') }
+  let(:null_log) { Logger.new(File::NULL) }
   let(:repo)     { described_class.new(db_path: tmp_db.path, logger: null_log) }
 
-  after { repo.close; tmp_db.unlink }
+  after do
+    repo.close
+    tmp_db.unlink
+  end
 
   let(:base_kline) do
     {

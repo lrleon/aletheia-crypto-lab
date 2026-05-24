@@ -1,0 +1,25 @@
+language: en
+
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "aletheia/**"
+    - "!aletheia/vendor/**"
+    - "!aletheia/data/**"
+    - "!aletheia/db/*.db"
+    - "!aletheia/logs/**"
+    - "!aletheia/reports/data_quality/**"
+  request_changes_workflow: false
+
+instructions: |
+  This is Aletheia, a conservative crypto market research lab. Rules that must never be violated:
+  - Spot only. No futures, no margin, no leverage, no withdrawals.
+  - dry_run: true and trading_enabled: false must remain as defaults.
+  - No autonomous real-money trading code.
+  - No hardcoded API keys or secrets.
+  - No hidden execution paths.
+  - Human confirmation is mandatory for any real order.
+  Do not suggest enabling live trading, removing safety checks, or adding non-Spot market types.
+  Prioritize: safety defaults, test coverage, clear logging, explainability.

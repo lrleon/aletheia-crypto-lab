@@ -30,7 +30,7 @@ module Aletheia
       # http_adapter: optional callable(url_string, params_hash) -> parsed_json_array
       # Useful for testing without real HTTP calls.
       def initialize(base_url: BASE_URL, http_adapter: nil, logger: Logger.new($stdout))
-        @base_url    = base_url
+        @base_url = base_url
         @http_adapter = http_adapter
         @logger       = logger
       end

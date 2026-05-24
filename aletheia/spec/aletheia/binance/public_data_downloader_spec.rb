@@ -5,7 +5,7 @@ require 'logger'
 require_relative '../../../lib/aletheia/binance/public_data_downloader'
 
 RSpec.describe Aletheia::Binance::PublicDataDownloader do
-  let(:null_log) { Logger.new('/dev/null') }
+  let(:null_log) { Logger.new(File::NULL) }
   let(:tmp_dir)  { Dir.mktmpdir('aletheia_dl_test') }
 
   after { FileUtils.remove_entry(tmp_dir) }

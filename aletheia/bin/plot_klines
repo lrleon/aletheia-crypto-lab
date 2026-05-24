@@ -29,13 +29,16 @@ parser = OptionParser.new do |opts|
   opts.separator ''
   opts.separator 'Opciones:'
 
-  opts.on('--symbol SYMBOL',   'Símbolo (ej: BTCUSDT, SOLUSDT)')             { |v| options[:symbol]   = v.upcase }
+  opts.on('--symbol SYMBOL',   'Símbolo (ej: BTCUSDT, SOLUSDT)') { |v| options[:symbol] = v.upcase }
   opts.on('--interval INTVAL', "Intervalo (#{VALID_INTERVALS.join(', ')})")   { |v| options[:interval] = v }
   opts.on('--from DATE',       'Fecha inicio YYYY-MM-DD (opcional)')          { |v| options[:from]     = v }
-  opts.on('--to DATE',         'Fecha fin YYYY-MM-DD (opcional, defecto hoy)'){ |v| options[:to]       = v }
-  opts.on('--open',            'Abrir el HTML en el navegador al terminar')   {     options[:open]      = true }
-  opts.on('--verbose',         'Logs detallados')                              {     options[:verbose]   = true }
-  opts.on('-h', '--help',      'Mostrar esta ayuda')                           { puts opts; exit 0 }
+  opts.on('--to DATE',         'Fecha fin YYYY-MM-DD (opcional, defecto hoy)') { |v| options[:to] = v }
+  opts.on('--open',            'Abrir el HTML en el navegador al terminar') { options[:open] = true }
+  opts.on('--verbose',         'Logs detallados')                              { options[:verbose] = true }
+  opts.on('-h', '--help',      'Mostrar esta ayuda')                           do
+    puts opts
+    exit 0
+  end
 
   opts.separator ''
   opts.separator 'Ejemplos:'
@@ -72,14 +75,14 @@ db_path      = File.join(project_root, 'db', 'aletheia.db')
 
 unless File.exist?(db_path)
   logger.error("Base de datos no encontrada: #{db_path}")
-  logger.error("Ejecuta primero: ruby bin/aletheia init_db && ruby bin/download_klines ...")
+  logger.error('Ejecuta primero: ruby bin/aletheia init_db && ruby bin/download_klines ...')
   exit 1
 end
 
 symbol   = options[:symbol]
 interval = options[:interval]
 
-repo = Aletheia::Storage::KlineRepository.new(db_path: db_path, logger: Logger.new('/dev/null'))
+repo = Aletheia::Storage::KlineRepository.new(db_path: db_path, logger: Logger.new(File::NULL))
 
 # Determinar rango de tiempo
 from_ms =
@@ -99,7 +102,7 @@ to_ms =
   if options[:to]
     begin
       d = Date.parse(options[:to])
-      Time.utc(d.year, d.month, d.day, 23, 59, 59).to_i * 1000 + 999
+      (Time.utc(d.year, d.month, d.day, 23, 59, 59).to_i * 1000) + 999
     rescue Date::Error => e
       logger.error("Fecha --to inválida: #{e.message}")
       exit 1
@@ -142,7 +145,7 @@ end
 logger.debug("CSV temporal: #{csv_path}")
 
 # Ruta de salida HTML
-charts_dir  = File.join(project_root, 'reports', 'charts')
+charts_dir = File.join(project_root, 'reports', 'charts')
 FileUtils.mkdir_p(charts_dir)
 
 from_label = Time.at(from_ms / 1000).utc.strftime('%Y%m%d')
@@ -160,12 +163,12 @@ unless File.exist?(r_script)
 end
 
 unless system('which Rscript > /dev/null 2>&1')
-  logger.error("Rscript no encontrado en PATH. Instala R para usar esta función.")
+  logger.error('Rscript no encontrado en PATH. Instala R para usar esta función.')
   FileUtils.rm_f(csv_path)
   exit 1
 end
 
-logger.info("Generando gráfico con R...")
+logger.info('Generando gráfico con R...')
 r_cmd = ['Rscript', '--vanilla', r_script, csv_path, symbol, interval, html_path]
 logger.debug("Ejecutando: #{r_cmd.join(' ')}")
 
@@ -173,7 +176,7 @@ success = system(*r_cmd)
 FileUtils.rm_f(csv_path)
 
 unless success
-  logger.error("El script R terminó con error.")
+  logger.error('El script R terminó con error.')
   exit 1
 end
 
@@ -191,14 +194,12 @@ if options[:open]
       'open'
     elsif system('which xdg-open > /dev/null 2>&1')
       'xdg-open'
-    else
-      nil
     end
 
   if opener
     system(opener, html_path)
   else
-    logger.warn("No se pudo abrir el navegador automáticamente.")
+    logger.warn('No se pudo abrir el navegador automáticamente.')
     logger.info("Abre manualmente: file://#{html_path}")
   end
 else

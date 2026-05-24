@@ -1983,6 +1983,164 @@ Registrar en `journal/YYYY-MM-DD.md`:
 
 ---
 
+# 14. Pipeline de validación continua (GitHub)
+
+## 14.1 Principio
+
+Este proyecto es público con licencia Apache 2.0. Eso permite usar herramientas gratuitas de revisión automática que de otro modo requerirían pago. El objetivo del pipeline no es bloquear trabajo, sino detectar regresiones, inconsistencias de seguridad y errores antes de que lleguen a `main`.
+
+Los agentes de IA (CodeRabbit, Codex, Gemini, Copilot) participan como revisores, no como aprobadores. La decisión final de merge pertenece al propietario humano.
+
+---
+
+## 14.2 Herramientas disponibles
+
+| Herramienta | Rol en este proyecto | Activación |
+|---|---|---|
+| **GitHub Actions** | Orquestador central del pipeline | Configuración en `.github/workflows/` |
+| **CodeRabbit** | Revisión automática de PRs (código, seguridad, estilo, tests faltantes) | App GitHub, gratis para repos públicos |
+| **GitHub Codex** | Sugerencias de código inline en el editor y en PRs | Habilitado por cuenta GitHub |
+| **Gemini Code Assist** | Revisión de PRs y sugerencias en GitHub | App GitHub Marketplace |
+| **GitHub Copilot** | Autocompletado y revisión inline en IDE | Extensión IDE / GitHub subscription |
+
+---
+
+## 14.3 Qué puede validar el pipeline
+
+### En cada push y PR
+
+- **`bundle exec rspec`** — suite de tests RSpec.
+- **`bundle exec rubocop`** — estilo y linting Ruby.
+- Verificación de que `config/app.yml` mantiene `dry_run: true` y `trading_enabled: false`.
+- Verificación de que ningún archivo staged contiene patrones de API secret.
+
+### En PRs (revisores automáticos)
+
+- **CodeRabbit**: revisa diff completo, identifica bugs, inconsistencias, tests faltantes y riesgos de seguridad. Comenta directamente en el PR.
+- **Gemini Code Assist**: revisión adicional del diff con enfoque en correctitud y calidad.
+- **Copilot**: sugerencias inline en el editor; en PRs, puede sugerir mejoras de código.
+
+### Limitaciones deliberadas
+
+- Ninguna herramienta de IA puede aprobar ni mergear un PR.
+- Ningún workflow debe ejecutar `git commit`, `git push`, `git tag` ni crear releases.
+- Los workflows no deben tener acceso a `BINANCE_API_KEY` ni `BINANCE_API_SECRET` en el entorno de CI. Las pruebas deben ser completamente offline.
+
+---
+
+## 14.4 Estructura de workflows propuesta
+
+```text
+.github/
+  workflows/
+    ci.yml           # tests + rubocop en cada push/PR
+    safety_check.yml # verifica dry_run y ausencia de secrets en archivos
+```
+
+### `ci.yml` — esqueleto mínimo
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version-file: aletheia/.ruby-version
+          bundler-cache: true
+          working-directory: aletheia
+      - name: RSpec
+        run: bundle exec rake spec
+        working-directory: aletheia
+      - name: RuboCop
+        run: bundle exec rubocop
+        working-directory: aletheia
+```
+
+### `safety_check.yml` — esqueleto mínimo
+
+```yaml
+name: Safety check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verificar dry_run activo
+        run: |
+          grep -q "dry_run: true" aletheia/config/app.yml || \
+            (echo "ERROR: dry_run no está activo" && exit 1)
+      - name: Verificar trading_enabled desactivado
+        run: |
+          grep -q "trading_enabled: false" aletheia/config/app.yml || \
+            (echo "ERROR: trading_enabled no está desactivado" && exit 1)
+      - name: Buscar posibles API secrets en código fuente
+        run: |
+          grep -rn "BINANCE_API_KEY\s*=\s*['\"][^'\"]" aletheia/lib aletheia/bin && \
+            echo "WARN: Posible secret hardcodeado" || true
+```
+
+---
+
+## 14.5 Configuración de CodeRabbit
+
+CodeRabbit se activa instalando la GitHub App desde [coderabbit.ai](https://coderabbit.ai) en el repositorio. Para repos públicos Apache, el tier gratuito incluye revisión de PRs ilimitada.
+
+Archivo de configuración opcional en la raíz del repo:
+
+```yaml
+# .coderabbit.yml
+language: en
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "aletheia/**"
+    - "!aletheia/vendor/**"
+    - "!aletheia/data/**"
+  request_changes_workflow: false
+```
+
+Instrucción útil para CodeRabbit (en el PR o en `.coderabbit.yml`):
+
+> Este proyecto es un laboratorio de investigación cripto Spot-only. No debe sugerir futures, margin, leverage, withdrawals ni trading autónomo. Priorizar seguridad, legibilidad y tests.
+
+---
+
+## 14.6 Uso responsable de IA en revisiones
+
+Los revisores automáticos pueden:
+
+- señalar bugs y regresiones;
+- detectar código sin tests;
+- sugerir mejoras de estilo;
+- alertar sobre patrones de seguridad.
+
+Los revisores automáticos **no deben**:
+
+- aprobar un PR sin revisión humana;
+- sugerir habilitar trading real;
+- sugerir almacenar API keys en código;
+- introducir dependencias no auditadas.
+
+Si un agente sugiere algo que contradice las reglas del proyecto (`AGENTS.md`), la sugerencia debe ignorarse y, si es relevante, documentarse en el journal.
+
+---
+
 # 13. Regla final
 
 Este proyecto debe avanzar solo si aumenta la comprensión y reduce el riesgo.

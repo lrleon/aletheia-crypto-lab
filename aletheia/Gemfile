@@ -1,19 +1,19 @@
-source "https://rubygems.org"
+source 'https://rubygems.org'
 
-gem "binance-connector-ruby" # Conector oficial/liviano para API pública Binance
-gem "sqlite3", "~> 1.4"      # Persistencia local. 1.4 for broader compat, or latest. Let's let bundle pick the compatible one for Ruby version. Wait, let's just use gem "sqlite3"
-gem "sequel"                 # Capa sencilla para DB; alternativa: ActiveRecord
-gem "dotenv"                 # Variables de entorno locales
-gem "dry-configurable"       # Configuración limpia
-gem "dry-validation"         # Validación de estructuras y contratos
-gem "oj"                     # JSON rápido
-gem "rubyzip"                # Leer ZIPs de data.binance.vision
-gem "csv"                    # CSV estándar
-gem "logger"                 # Logging base
-gem "rake"                   # rake tasks
+gem 'binance-connector-ruby' # Conector oficial/liviano para API pública Binance
+gem 'sqlite3', '~> 1.4'      # Persistencia local. 1.4 for broader compat, or latest. Let's let bundle pick the compatible one for Ruby version. Wait, let's just use gem "sqlite3"
+gem 'sequel'                 # Capa sencilla para DB; alternativa: ActiveRecord
+gem 'dotenv'                 # Variables de entorno locales
+gem 'dry-configurable'       # Configuración limpia
+gem 'dry-validation'         # Validación de estructuras y contratos
+gem 'oj'                     # JSON rápido
+gem 'rubyzip'                # Leer ZIPs de data.binance.vision
+gem 'csv'                    # CSV estándar
+gem 'logger'                 # Logging base
+gem 'rake'                   # rake tasks
 
 group :development, :test do
-  gem "rspec"
-  gem "rubocop", require: false
-  gem "simplecov"
+  gem 'rspec'
+  gem 'rubocop', require: false
+  gem 'simplecov'
 end

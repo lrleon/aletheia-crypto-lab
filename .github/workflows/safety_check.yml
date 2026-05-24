@@ -1,0 +1,42 @@
+name: Safety check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verificar dry_run activo
+        run: |
+          grep -q "dry_run: true" aletheia/config/app.yml || \
+            (echo "ERROR: dry_run no está activo en config/app.yml" && exit 1)
+
+      - name: Verificar trading_enabled desactivado
+        run: |
+          grep -q "trading_enabled: false" aletheia/config/app.yml || \
+            (echo "ERROR: trading_enabled no está desactivado en config/app.yml" && exit 1)
+
+      - name: Verificar ausencia de secrets hardcodeados en lib y bin
+        run: |
+          if grep -rn "BINANCE_API_KEY\s*=\s*['\"][^'\"']" aletheia/lib aletheia/bin 2>/dev/null; then
+            echo "ERROR: Posible API key hardcodeada detectada"
+            exit 1
+          fi
+          if grep -rn "BINANCE_API_SECRET\s*=\s*['\"][^'\"']" aletheia/lib aletheia/bin 2>/dev/null; then
+            echo "ERROR: Posible API secret hardcodeado detectado"
+            exit 1
+          fi
+          echo "OK: No se detectaron secrets hardcodeados"
+
+      - name: Verificar que .env no está trackeado
+        run: |
+          if git ls-files --error-unmatch aletheia/.env 2>/dev/null; then
+            echo "ERROR: aletheia/.env está trackeado en Git"
+            exit 1
+          fi
+          echo "OK: .env no está trackeado"

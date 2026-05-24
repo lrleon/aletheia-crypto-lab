@@ -2,7 +2,7 @@ require 'logger'
 require_relative '../../../lib/aletheia/binance/rest_client'
 
 RSpec.describe Aletheia::Binance::RestClient do
-  let(:null_log) { Logger.new('/dev/null') }
+  let(:null_log) { Logger.new(File::NULL) }
 
   # Un registro de vela en formato Binance REST (12 campos)
   def raw_kline(open_time:, close_time:, open: '29000.0', high: '29500.0',
@@ -79,8 +79,8 @@ RSpec.describe Aletheia::Binance::RestClient do
         t = base_open_time + (i * step)
         raw_kline(open_time: t, close_time: t + step - 1)
       end
-      page2   = [raw_kline(open_time: base_open_time + (1000 * step),
-                           close_time: base_open_time + (1001 * step) - 1)]
+      page2 = [raw_kline(open_time: base_open_time + (1000 * step),
+                         close_time: base_open_time + (1001 * step) - 1)]
 
       # Simula sleep para no ralentizar el test
       allow_any_instance_of(described_class).to receive(:sleep)
