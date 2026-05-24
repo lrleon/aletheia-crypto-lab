@@ -1,0 +1,61 @@
+#!/usr/bin/env ruby
+
+require_relative '../lib/aletheia'
+require 'sqlite3'
+require 'fileutils'
+
+command = ARGV[0]
+
+case command
+when '--help', '-h', 'help'
+  puts 'Aletheia - Laboratorio prudente de trading algorítmico'
+  puts ''
+  puts 'Uso: bin/aletheia <comando>'
+  puts ''
+  puts 'Comandos disponibles:'
+  puts '  doctor      Verifica reglas de seguridad de configuración (Fase 0)'
+  puts '  init_db     Inicializa la base de datos SQLite local'
+  puts '  help        Muestra esta ayuda'
+  puts ''
+  puts 'Scripts de descarga (Fase 2):'
+  puts '  bin/download_klines --help'
+when 'init_db'
+  puts 'Inicializando base de datos local...'
+  db_path = File.join(__dir__, '..', 'db', 'aletheia.db')
+  schema_path = File.join(__dir__, '..', 'db', 'schema.sql')
+
+  unless File.exist?(schema_path)
+    puts '[ERROR] Archivo de esquema no encontrado en db/schema.sql'
+    exit 1
+  end
+
+  db = SQLite3::Database.new(db_path)
+  db.execute_batch(File.read(schema_path))
+  puts '[OK] Base de datos inicializada en db/aletheia.db'
+when 'doctor'
+  puts 'Aletheia (Fase 0) - Diagnosticando seguridad de configuración...'
+
+  begin
+    config_path = ENV.fetch('ALETHEIA_CONFIG', 'config/app.yml')
+    risk_path = ENV.fetch('ALETHEIA_RISK_LIMITS', 'config/risk.yml')
+
+    puts "Cargando config: #{config_path}"
+    puts "Cargando risk limits: #{risk_path}"
+
+    config = Aletheia::Config.new(config_path)
+    # risk config is loaded just to verify it exists and is valid YAML
+    risk = Aletheia::Config.new(risk_path)
+
+    puts 'Verificando reglas de seguridad estrictas...'
+    Aletheia::Safety.verify!(config, risk)
+
+    puts '[OK] Todas las comprobaciones de seguridad pasaron.'
+    exit 0
+  rescue => e
+    puts "[ERROR] #{e.class}: #{e.message}"
+    exit 1
+  end
+else
+  puts 'Uso: bin/aletheia [--help | doctor | init_db]'
+  exit 1
+end
